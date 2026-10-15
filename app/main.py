@@ -3,16 +3,44 @@
 from functools import lru_cache
 
 import spacy
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field
 
 from app.bigram_model import BigramModel
+
+import io
+from pathlib import Path
+
+import torch
+from PIL import Image
+from torchvision import transforms
+
+from app.cnn_model import AssignmentCNN
 
 app = FastAPI(
     title="Applied Generative AI API",
     description="Generate text with a bigram model and retrieve spaCy word embeddings.",
     version="1.0.0",
 )
+MODEL_PATH = Path(__file__).resolve().parent.parent / "cifar10_cnn.pth"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+checkpoint = torch.load(
+    MODEL_PATH,
+    map_location=device,
+    weights_only=True,
+)
+
+classifier = AssignmentCNN().to(device)
+classifier.load_state_dict(checkpoint["model_state_dict"])
+classifier.eval()
+
+class_names = checkpoint["classes"]
+
+image_transform = transforms.Compose([
+    transforms.Resize((64, 64)),
+    transforms.ToTensor(),
+])
 
 CORPUS = [
     "The Count of Monte Cristo is a novel written by Alexandre Dumas. "
@@ -91,4 +119,26 @@ def get_embedding(request: EmbeddingRequest):
         "embedding": token.vector.tolist(),
         "dimensions": int(token.vector.shape[0]),
         "model": "en_core_web_md",
+    }
+@app.post("/classify")
+async def classify_image(file: UploadFile = File(...)):
+    try:
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image file",
+        ) from exc
+
+    image_tensor = image_transform(image).unsqueeze(0).to(device)
+
+    with torch.inference_mode():
+        outputs = classifier(image_tensor)
+        probabilities = torch.softmax(outputs, dim=1)[0]
+        predicted_index = int(probabilities.argmax())
+
+    return {
+        "class": class_names[predicted_index],
+        "confidence": float(probabilities[predicted_index]),
     }
