@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+probability_solutions.md
+probability_solutions.pdf
+tmp/

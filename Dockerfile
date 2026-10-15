@@ -1,10 +1,10 @@
-FROM python:3.11-slim
+FROM python:3.12-slim-bookworm
 
-WORKDIR /app
+WORKDIR /code
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && python -m spacy download en_core_web_md
 
-COPY main.py .
+COPY app ./app
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
